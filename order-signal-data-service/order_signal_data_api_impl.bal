@@ -129,7 +129,7 @@ public function updateProcessFlag (http:Request req, model:OrderSignalDAO orderS
 
 public function batchUpdateProcessFlag (http:Request req, model:OrderSignalsDAO orderSignals)
                     returns http:Response {
-    io:println(orderSignals);
+                        
     orderSignalBatchType[][] orderSignalBatches;
     foreach i, orderSignal in orderSignals.orderSignals {
         orderSignalBatchType[] sig = [orderSignal.processFlag, orderSignal.retryCount, 
