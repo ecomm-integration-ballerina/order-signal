@@ -38,11 +38,11 @@ service<mb:Consumer> orderSignalInboundQueueReceiver bind orderSignalInboundQueu
                 
                 boolean success = handleOrderSignal(path);
 
-                // if (success) {
-                //     archiveCompletedRefund(path);
-                // } else {
-                //     archiveErroredRefund(path);
-                // }
+                if (success) {
+                    archiveCompletedRefund(path);
+                } else {
+                    archiveErroredRefund(path);
+                }
             }
             error e => {
                 log:printError("Error occurred while reading message from " 
@@ -113,20 +113,20 @@ function generateOrderSignalJson(xml orderSignalXml) returns json {
     return orderSignalPayload;
 }
 
-// function archiveCompletedRefund(string  path) {
-//     string archivePath = config:getAsString("ecomm_backend.refund.sftp.path") + "/archive/" + getFileName(path);
-//     _ = refundSFTPClient -> rename(path, archivePath);
-//     io:println("Archived refund path : ", archivePath);
-// }
+function archiveCompletedRefund(string  path) {
+    string archivePath = config:getAsString("ecomm_backend.order_signal.sftp.path") + "/archive/" + getFileName(path);
+    _ = orderSignalSFTPClient -> rename(path, archivePath);
+    io:println("Archived order-signal path : ", archivePath);
+}
 
-// function archiveErroredRefund(string path) {
-//     string erroredPath = config:getAsString("ecomm_backend.refund.sftp.path") + "/error/" + getFileName(path);
-//     _ = refundSFTPClient -> rename(path, erroredPath);
-//     io:println("Errored refund path : ", erroredPath);
-// }
+function archiveErroredRefund(string path) {
+    string erroredPath = config:getAsString("ecomm_backend.order_signal.sftp.path") + "/error/" + getFileName(path);
+    _ = orderSignalSFTPClient -> rename(path, erroredPath);
+    io:println("Errored order-signal path : ", erroredPath);
+}
 
-// function getFileName(string path) returns string {
-//     string[] tmp = path.split("/");
-//     int size = lengthof tmp;
-//     return tmp[size-1];
-// }
+function getFileName(string path) returns string {
+    string[] tmp = path.split("/");
+    int size = lengthof tmp;
+    return tmp[size-1];
+}
