@@ -32,9 +32,11 @@ service<mb:Consumer> orderSignalInboundQueueReceiver bind orderSignalInboundQueu
     onMessage(endpoint consumer, mb:Message message) {
         match (message.getTextMessageContent()) {           
             string path => {
+
                 log:printInfo("New order-signal received from " + 
                                 config:getAsString("order_signal.mb.queueName") + " queue." + path);
-                // boolean success = handleRefund(path);
+                
+                boolean success = handleOrderSignal(path);
 
                 // if (success) {
                 //     archiveCompletedRefund(path);
@@ -50,71 +52,66 @@ service<mb:Consumer> orderSignalInboundQueueReceiver bind orderSignalInboundQueu
     }
 }
 
-// function handleRefund(string path) returns boolean {
+function handleOrderSignal(string path) returns boolean {
 
-//     boolean success = false;
-//     var refundOrError = refundSFTPClient -> get(path);
-//     match refundOrError {
+    boolean success = false;
+    var ret = orderSignalSFTPClient -> get(path);
 
-//         io:ByteChannel channel => {
-//             io:CharacterChannel characters = new(channel, "utf-8");
-//             xml refundXml = check characters.readXml();
-//             _ = channel.close();
+    match ret {
+        io:ByteChannel channel => {
+            io:CharacterChannel characters = new(channel, "utf-8");
+            xml orderSignalXml = check characters.readXml();
+            _ = channel.close();
 
-//             json refunds = generateRefundsJson(refundXml);
+            json orderSignals = generateOrderSignalJson(orderSignalXml);
 
-//             http:Request req = new;
-//             req.setJsonPayload(untaint refunds);
-//             var response = refundDataEndpoint->post("/batch/", req);
+            io:println(orderSignals);
 
-//             match response {
-//                 http:Response resp => {
-//                     match resp.getJsonPayload() {
-//                         json j => {
-//                             log:printInfo("Response from refundDataEndpoint : " + j.toString());
-//                             success = true;
-//                         }
-//                         error err => {
-//                             log:printError("Response from refundDataEndpoint is not a json : " + err.message, err = err);
-//                         }
-//                     }
-//                 }
-//                 error err => {
-//                     log:printError("Error while calling refundDataEndpoint : " + err.message, err = err);
-//                 }
-//             }
-//         }
+            http:Request req = new;
+            req.setJsonPayload(untaint orderSignals);
+            var response = orderSignalDataEndpoint->post("/", req);
 
-//         error err => {
-//             log:printError("Error while reading files from refundSFTPClient : " + err.message, err = err);
-//         }
-//     }
+            match response {
+                http:Response resp => {
+                    match resp.getJsonPayload() {
+                        json j => {
+                            log:printInfo("Response from orderSignalDataEndpoint : " + j.toString());
+                            success = true;
+                        }
+                        error err => {
+                            log:printError("Response from orderSignalDataEndpoint is not a json : " + err.message, err = err);
+                        }
+                    }
+                }
+                error err => {
+                    log:printError("Error while calling orderSignalDataEndpoint : " + err.message, err = err);
+                }
+            }
+        }
 
-//     return success;
-// }
+        error err => {
+            log:printError("Error while reading files from orderSignalSFTPClient : " + err.message, err = err);
+        }
+    }
 
-// function generateRefundsJson(xml refundXml) returns json {
+    return success;
+}
 
-//     json refunds;
-//     foreach i, x in refundXml.selectDescendants("ZECOMMCREDITMEMO") { 
-//         json refundJson = {
-//             "orderNo" : x.selectDescendants("ZBLCORD").getTextValue(),
-//             "kind" : x.selectDescendants("ZCMTYPE").getTextValue(),
-//             "invoiceId" : x.selectDescendants("AUBEL").getTextValue(),
-//             "settlementId" : x.selectDescendants("ZOSETTID").getTextValue(),
-//             "creditMemoId" : x.selectDescendants("ZCMNO").getTextValue(),
-//             "itemIds" : x.selectDescendants("ZBLCITEM").getTextValue(),
-//             "countryCode" : x.selectDescendants("LAND1").getTextValue(),
-//             "request" : <string> x,
-//             "processFlag" : "N",
-//             "retryCount" : 0,
-//             "errorMessage":"None"
-//         };
-//         refunds.refunds[i] = refundJson;
-//     }
-    
-//     return refunds;
-// }
+function generateOrderSignalJson(xml orderSignalXml) returns json {
+
+    json orderSignalPayload = {
+        "context" : orderSignalXml.IDOC.ZECOMMEDK01.ZCONID.getTextValue(),
+        "signal" : orderSignalXml.IDOC.ZECOMMEDK01.ZSHIPST.getTextValue(),
+        "orderNo" : orderSignalXml.IDOC.ZECOMMEDK01.BELNR.getTextValue(),
+        "partnerId" : orderSignalXml.IDOC.EDI_DC40.DOCNUM.getTextValue(),
+        "request" : <string> orderSignalXml,
+        "processFlag" : "N",
+        "retryCount" : 0,
+        "errorMessage" : "None"
+    };
+
+    return orderSignalPayload;
+}
 
 // function archiveCompletedRefund(string  path) {
 //     string archivePath = config:getAsString("ecomm_backend.refund.sftp.path") + "/archive/" + getFileName(path);
