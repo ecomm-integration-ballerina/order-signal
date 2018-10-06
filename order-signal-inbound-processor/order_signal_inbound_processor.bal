@@ -65,8 +65,6 @@ function handleOrderSignal(string path) returns boolean {
 
             json orderSignals = generateOrderSignalJson(orderSignalXml);
 
-            io:println(orderSignals);
-
             http:Request req = new;
             req.setJsonPayload(untaint orderSignals);
             var response = orderSignalDataEndpoint->post("/", req);
