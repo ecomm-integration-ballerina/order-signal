@@ -14,7 +14,9 @@ endpoint ftp:Listener orderSignalSFTPListener {
             password: config:getAsString("ecomm_backend.order_signal.sftp.password")
         }
     },
-    path:config:getAsString("ecomm_backend.order_signal.sftp.path") + "/original"
+    path: config:getAsString("ecomm_backend.order_signal.sftp.path") + "/original",
+    pollingInterval: config:getAsInt("ecomm_backend.order_signal.sftp.pollingInterval"),
+    fileNamePattern: config:getAsString("ecomm_backend.order_signal.sftp.fileNamePattern")
 };
 
 endpoint mb:SimpleQueueSender orderSignalInboundQueue {
