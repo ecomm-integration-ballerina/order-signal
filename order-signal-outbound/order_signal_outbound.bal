@@ -4,13 +4,14 @@ import ballerina/config;
 import ballerina/task;
 import ballerina/runtime;
 import ballerina/io;
+import ballerina/math;
 import raj/orders.signal.model as model;
 
 endpoint http:Client orderSignalDataServiceEndpoint {
     url: config:getAsString("order_signal.data.service.url")
 };
 
-endpoint http:Client ecommFrontendRefundAPIEndpoint {
+endpoint http:Client ecommFrontendOrderSignalAPIEndpoint {
     url: config:getAsString("ecomm_frontend.order_signal.api.url")
 };
 
@@ -55,14 +56,11 @@ function doRefundETL() returns  error? {
                     if (lengthof orderSignals == 0) {
                         return;
                     }
-
-                    log:printInfo("Fetched order-signals. Payload: \n" + jsonOrderSignalArray.toString());
-
                     // update process flag to P in DB so that next ETL won't fetch these again
                     boolean success = batchUpdateProcessFlagsToP(orderSignals);
-                    // send refunds to Ecomm Frontend
+                    // send order-signals to Ecomm Frontend
                     if (success) {
-                        // processRefundsToEcommFrontend(orderSignals);
+                        processRefundsToEcommFrontend(orderSignals);
                     }
                 }
                 error err => {
@@ -82,92 +80,131 @@ function doRefundETL() returns  error? {
     return ();
 }
 
-// function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
+function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
 
-//     http:Request req = new;
-//     foreach orderSignal in orderSignals {
+    http:Request req = new;
+    foreach orderSignal in orderSignals {
 
-//         int tid = orderSignal.transactionId;
-//         string orderNo = orderSignal.orderNo;
-//         int retryCount = orderSignal.retryCount;
+        int tid = orderSignal.transactionId;
+        string orderNo = orderSignal.orderNo;
+        int retryCount = orderSignal.retryCount;
+        string contextId = orderSignal.context;
        
-//         json jsonPayload = untaint getRefundPayload(refund);
-//         req.setJsonPayload(jsonPayload);
-//         req.setHeader("api-key", apiKey);
-//         string contextId = "ECOMM_" + refund.countryCode;
-//         req.setHeader("Context-Id", "ECOMM_US");
+        json jsonPayload = untaint getOrderSignalPayload(orderSignal);
+        io:println(jsonPayload);
+        req.setJsonPayload(jsonPayload);
+        req.setHeader("Api-Key", apiKey);
+        req.setHeader("Context-Id", contextId);
 
-//         log:printInfo("Calling ecomm-frontend to process refund for : " + orderNo + 
-//                         ". Payload : " + jsonPayload.toString());
+        log:printInfo("Calling ecomm-frontend to process order-signal for : " + orderNo + 
+                        ". Payload : " + jsonPayload.toString());
 
-//         var response = ecommFrontendRefundAPIEndpoint->post("/" + untaint orderNo + "/cancel/async", req);
+        var response = ecommFrontendOrderSignalAPIEndpoint->post("/", req);
 
-//         match response {
-//             http:Response resp => {
+        match response {
+            http:Response resp => {
 
-//                 int httpCode = resp.statusCode;
-//                 if (httpCode == 201) {
-//                     log:printInfo("Successfully processed refund for : " + orderNo + " to ecomm-frontend");
-//                     updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend");
-//                 } else {
-//                     match resp.getTextPayload() {
-//                         string payload => {
-//                             log:printInfo("Failed to process refund for : " + orderNo +
-//                                     " to ecomm-frontend. Error code : " + httpCode + ". Error message : " + payload);
-//                             updateProcessFlag(tid, retryCount + 1, "E", payload);
-//                         }
-//                         error err => {
-//                             log:printInfo("Failed to process refund for : " + orderNo +
-//                                     " to ecomm-frontend. Error code : " + httpCode);
-//                             updateProcessFlag(tid, retryCount + 1, "E", "unknown error");
-//                         }
-//                     }
-//                 }
-//             }
-//             error err => {
-//                 log:printError("Error while calling ecomm-frontend for refund for : " + orderNo, err = err);
-//                 updateProcessFlag(tid, retryCount + 1, "E", "unknown error");
-//             }
-//         }
-//     }
-// }
+                int httpCode = resp.statusCode;
+                if (httpCode == 201) {
+                    log:printInfo("Successfully processed order-signal for : " + orderNo + " to ecomm-frontend");
+                    updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend");
+                } else {
+                    match resp.getTextPayload() {
+                        string payload => {
+                            log:printInfo("Failed to process order-signal for : " + orderNo +
+                                    " to ecomm-frontend. Error code : " + httpCode + ". Error message : " + payload);
+                            updateProcessFlag(tid, retryCount + 1, "E", payload);
+                        }
+                        error err => {
+                            log:printInfo("Failed to process order-signal for : " + orderNo +
+                                    " to ecomm-frontend. Error code : " + httpCode);
+                            updateProcessFlag(tid, retryCount + 1, "E", err.message);
+                        }
+                    }
+                }
+            }
+            error err => {
+                log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
+                updateProcessFlag(tid, retryCount + 1, "E", err.message);
+            }
+        }
+    }
+}
 
-// function getRefundPayload(model:OrderSignalDAO refund) returns (json) {
+function getOrderSignalPayload(model:OrderSignalDAO orderSignal) returns (json) {
 
-//     json refundPayload ;
+    io:StringReader sr = new(orderSignal.request);
+    xml? requestOptional = check sr.readXml();
+    
+    json orderSignalPayload;
+    match requestOptional {
+        xml request => {
 
-//     // convert string 7,8,9 to json ["7","8","9"]
-//     string itemIds = refund.itemIds;
-//     string[] itemIdsArray = itemIds.split(",");
-//     json itemIdsJsonArray = check <json> itemIdsArray;
+            json[] productLines;
+            foreach i, x in request.IDOC.ZECOMMEDK01.selectDescendants("ZECOMMEDP01") {
+                json productLineItem = {
+                    "lineItemText": x.ZTEXT.getTextValue(),
+                    "taxRate": x.ZTAXR.getTextValue(),
+                    "productName": x.ZPNAME.getTextValue(),
+                    "quantity": math:floor(check <int> x.ZQTY.getTextValue()),
+                    "shipmentId": x.ZSHIPID.getTextValue(),
+                    "shipmentQuantity": x.ZSHIPQTY.getTextValue(),
+                    "promiseDate": x.ZSSD.getTextValue(),
+                    "lineItemPosition": x.ZLINENO.getTextValue(),
+                    "shippingStatus": x.ZSHIPST.getTextValue(),
+                    "shipmentDelayReason": x.ZSPDELAY.getTextValue()
+                };
+                productLines[i] = productLineItem;
+            }
 
-//     // default is cancel payload
-//     refundPayload = {
-//         "type": "AUTH_CANCEL",
-//         "invoiceId": refund.invoiceId,
-//         "currency": refund.countryCode,
-//         "countryCode": refund.countryCode,
-//         "comments": refund.countryCode,
-//         "amount": refund.countryCode,
-//         "itemIds": itemIdsJsonArray
-//     };
+            json[] shipments;
+            foreach i, x in request.IDOC.ZECOMMEDK01.selectDescendants("ZECOMMEDK02") {
+                json shipment = {
+                    "shipmentId": x.ZSHIPID.getTextValue(),
+                    "status": {
+                        "shippingStatus": x.ZSHIPST.getTextValue()
+                    },
+                    "shipmentDelayReason": x.ZSPDELAY.getTextValue(),
+                    "shippingMethod": x.ZSMETHOD.getTextValue(),
+                    "trackingNumber": x.ZTRACKNO.getTextValue(),
+                    "carrier": x.ZCARRIER.getTextValue(),
+                    "shipmentDate": x.ZSHIPDATE.getTextValue()
+                };
+                shipments[i] = shipment;
+            }
 
-//     string kind = <string> refund.kind;
-//     if (kind == "REFUND" || kind == "CREDITMEMO") {        
-//         refundPayload["creditMemoId"] = refund.creditMemoId;
-//         refundPayload["settlementId"] = refund.settlementId;
-//         refundPayload["type"] = "REFUND";
-//         refundPayload["totalAmount"] = refund.countryCode;
+            orderSignalPayload = {
+                    "orders":{
+                        "order":[
+                            {
+                                "orderNo": request.IDOC.ZECOMMEDK01.BELNR.getTextValue(),
+                                "orderDate": request.IDOC.ZECOMMEDK01.ZDATE.getTextValue(),
+                                "originalOrderNo": request.IDOC.ZECOMMEDK01.OBELNR.getTextValue(),
+                                "currency": request.IDOC.ZECOMMEDK01.CURCY.getTextValue(),
+                                "status":{
+                                    "orderStatus": request.IDOC.ZECOMMEDK01.ZORDST.getTextValue(),
+                                    "shippingStatus": request.IDOC.ZECOMMEDK01.ZSHIPST.getTextValue()
+                                },
+                                "MFGOrderNumber": request.IDOC.ZECOMMEDK01.ZMFGSO.getTextValue(),
+                                "MFGCustomerNumber": request.IDOC.ZECOMMEDK01.ZMFGCU.getTextValue(),
+                                "productLineItems":{
+                                    "productLineItem": productLines
+                                },                    
+                                "shipments":{
+                                    "shipment": shipments
+                                }
+                            }
+                        ]
+                    }
+                };
 
-//         if (kind == "REFUND") {
-//             refundPayload["requestId"] = refund.countryCode; // should be timestamp
-//         } else {
-//             refundPayload["requestId"] = refund.creditMemoId;
-//         }
-//     } 
+        }
 
-//     return refundPayload;
-// }
+        () => {}
+    }
+
+    return orderSignalPayload;
+}
 
 function batchUpdateProcessFlagsToP (model:OrderSignalDAO[] orderSignals) returns boolean {
 
