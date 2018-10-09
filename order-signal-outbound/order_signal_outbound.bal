@@ -93,44 +93,55 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
         string orderNo = orderSignal.orderNo;
         int retryCount = orderSignal.retryCount;
         string contextId = orderSignal.context;
-       
-        json jsonPayload = untaint getOrderSignalPayload(orderSignal);
-        io:println(jsonPayload);
-        req.setJsonPayload(jsonPayload);
-        req.setHeader("Api-Key", apiKey);
-        req.setHeader("Context-Id", contextId);
 
-        log:printInfo("Calling ecomm-frontend to process order-signal for : " + orderNo + 
-                        ". Payload : " + jsonPayload.toString());
+        try {
 
-        var response = ecommFrontendOrderSignalAPIEndpoint->post("/", req);
+            if (contextId != "dummy"){
+                error err1 = { message: "Record is null" };
+                throw err1;
+            }
 
-        match response {
-            http:Response resp => {
+            json jsonPayload = untaint getOrderSignalPayload(orderSignal);
+            io:println(jsonPayload);
+            req.setJsonPayload(jsonPayload);
+            req.setHeader("Api-Key", apiKey);
+            req.setHeader("Context-Id", contextId);
 
-                int httpCode = resp.statusCode;
-                if (httpCode == 201) {
-                    log:printInfo("Successfully processed order-signal for : " + orderNo + " to ecomm-frontend");
-                    updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend", httpCode, jsonPayload.toString());
-                } else {
-                    match resp.getTextPayload() {
-                        string payload => {
-                            log:printInfo("Failed to process order-signal for : " + orderNo +
-                                    " to ecomm-frontend. Error code : " + httpCode + ". Error message : " + payload);
-                            updateProcessFlag(tid, retryCount + 1, "E", payload, httpCode, jsonPayload.toString());
-                        }
-                        error err => {
-                            log:printInfo("Failed to process order-signal for : " + orderNo +
-                                    " to ecomm-frontend. Error code : " + httpCode);
-                            updateProcessFlag(tid, retryCount + 1, "E", err.message, httpCode, jsonPayload.toString());
+            log:printInfo("Calling ecomm-frontend to process order-signal for : " + orderNo + 
+                            ". Payload : " + jsonPayload.toString());
+
+            var response = ecommFrontendOrderSignalAPIEndpoint->post("/", req);
+
+            match response {
+                http:Response resp => {
+
+                    int httpCode = resp.statusCode;
+                    if (httpCode == 201) {
+                        log:printInfo("Successfully processed order-signal for : " + orderNo + " to ecomm-frontend");
+                        updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend", httpCode, jsonPayload.toString());
+                    } else {
+                        match resp.getTextPayload() {
+                            string payload => {
+                                log:printInfo("Failed to process order-signal for : " + orderNo +
+                                        " to ecomm-frontend. Error code : " + httpCode + ". Error message : " + payload);
+                                updateProcessFlag(tid, retryCount + 1, "E", payload, httpCode, jsonPayload.toString());
+                            }
+                            error err => {
+                                log:printInfo("Failed to process order-signal for : " + orderNo +
+                                        " to ecomm-frontend. Error code : " + httpCode);
+                                updateProcessFlag(tid, retryCount + 1, "E", err.message, httpCode, jsonPayload.toString());
+                            }
                         }
                     }
                 }
+                error err => {
+                    log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
+                    updateProcessFlag(tid, retryCount + 1, "E", err.message, -1, jsonPayload.toString());
+                }
             }
-            error err => {
-                log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
-                updateProcessFlag(tid, retryCount + 1, "E", err.message, -1, jsonPayload.toString());
-            }
+        } catch (error err) {
+            log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
+            updateProcessFlag(tid, retryCount + 1, "E", err.message, -2, "");
         }
     }
 }
@@ -261,6 +272,8 @@ function updateProcessFlag(int tid, int retryCount, string processFlag, string e
             int httpCode = resp.statusCode;
             if (httpCode == 202) {
                 if (processFlag == "E" && retryCount > maxRetryCount) {
+                    // sending email alerts
+                    log:printError("Max retry count exeeced. Notifying operations. Tid " + tid);
                     notifyOperation(errorMessage, resCode, reqPayload);
                 }
             }
@@ -279,17 +292,18 @@ function notifyOperation(string errorMessage, int httpCode, string reqPayload)  
     if (httpCode == -1) {
         failedParty = "Network";
         message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but experiencing a network failure";
+    } else if (httpCode == -2) {
+        failedParty = "Ballerina";
+        message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but experiencing a mediation failure";
     } else {
         failedParty = "EF";
         message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but EF is responding with an error";
     }
 
-    // sending email alerts
-    log:printInfo("Notifying operations");
     json notificationPayload = {
         "parties": ["BQ","EF","Ballerina","Network"],
-        "recipient":"rajkumarr@wso2.com",
-        "cc":"rraju1990@gmail.com",
+        "recipient": config:getAsString("order_signal.outbound.notification.recipient"),
+        "cc": config:getAsString("order_signal.outbound.notification.cc"),
         "failedParty" : failedParty,
         "subject": "Failed to submit order to EF",
         "message": message,
