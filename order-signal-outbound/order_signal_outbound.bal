@@ -15,6 +15,10 @@ endpoint http:Client ecommFrontendOrderSignalAPIEndpoint {
     url: config:getAsString("ecomm_frontend.order_signal.api.url")
 };
 
+endpoint http:Client notificationServiceEndpoint {
+    url: config:getAsString("notification.service.url")
+};
+
 int count;
 task:Timer? timer;
 int interval = config:getAsInt("order_signal.outbound.task.interval");
@@ -107,25 +111,25 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
                 int httpCode = resp.statusCode;
                 if (httpCode == 201) {
                     log:printInfo("Successfully processed order-signal for : " + orderNo + " to ecomm-frontend");
-                    updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend");
+                    updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend", httpCode, jsonPayload.toString());
                 } else {
                     match resp.getTextPayload() {
                         string payload => {
                             log:printInfo("Failed to process order-signal for : " + orderNo +
                                     " to ecomm-frontend. Error code : " + httpCode + ". Error message : " + payload);
-                            updateProcessFlag(tid, retryCount + 1, "E", payload);
+                            updateProcessFlag(tid, retryCount + 1, "E", payload, httpCode, jsonPayload.toString());
                         }
                         error err => {
                             log:printInfo("Failed to process order-signal for : " + orderNo +
                                     " to ecomm-frontend. Error code : " + httpCode);
-                            updateProcessFlag(tid, retryCount + 1, "E", err.message);
+                            updateProcessFlag(tid, retryCount + 1, "E", err.message, httpCode, jsonPayload.toString());
                         }
                     }
                 }
             }
             error err => {
                 log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
-                updateProcessFlag(tid, retryCount + 1, "E", err.message);
+                updateProcessFlag(tid, retryCount + 1, "E", err.message, -1, jsonPayload.toString());
             }
         }
     }
@@ -238,7 +242,7 @@ function batchUpdateProcessFlagsToP (model:OrderSignalDAO[] orderSignals) return
     return success;
 }
 
-function updateProcessFlag(int tid, int retryCount, string processFlag, string errorMessage) {
+function updateProcessFlag(int tid, int retryCount, string processFlag, string errorMessage, int resCode, string reqPayload) {
 
     json updateOrderSignal = {
         "transactionId": tid,
@@ -257,7 +261,7 @@ function updateProcessFlag(int tid, int retryCount, string processFlag, string e
             int httpCode = resp.statusCode;
             if (httpCode == 202) {
                 if (processFlag == "E" && retryCount > maxRetryCount) {
-                    notifyOperation();
+                    notifyOperation(errorMessage, resCode, reqPayload);
                 }
             }
         }
@@ -267,9 +271,44 @@ function updateProcessFlag(int tid, int retryCount, string processFlag, string e
     }
 }
 
-function notifyOperation()  {
+function notifyOperation(string errorMessage, int httpCode, string reqPayload)  {
+
+    string failedParty;
+    string message;
+    float intervalSec = interval/1000;
+    if (httpCode == -1) {
+        failedParty = "Network";
+        message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but experiencing a network failure";
+    } else {
+        failedParty = "EF";
+        message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but EF is responding with an error";
+    }
+
     // sending email alerts
     log:printInfo("Notifying operations");
+    json notificationPayload = {
+        "parties": ["BQ","EF","Ballerina","Network"],
+        "recipient":"rajkumarr@wso2.com",
+        "cc":"rraju1990@gmail.com",
+        "failedParty" : failedParty,
+        "subject": "Failed to submit order to EF",
+        "message": message,
+        "targetResponse": {
+                "party": "EF",
+                "sc": httpCode,
+                "payload": errorMessage
+            },
+            "sourceRequest": {
+                "party": "Ballerina",
+                "payload": reqPayload
+            }
+    };
+    http:Request req = new;
+
+    req.setJsonPayload(untaint notificationPayload);
+
+    var response = notificationServiceEndpoint->post("/email", req);
+    io:println(response);
 }
 
 function handleError(error e) {
