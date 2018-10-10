@@ -96,11 +96,6 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
 
         try {
 
-            if (contextId != "dummy"){
-                error err1 = { message: "Record is null" };
-                throw err1;
-            }
-
             json jsonPayload = untaint getOrderSignalPayload(orderSignal);
             io:println(jsonPayload);
             req.setJsonPayload(jsonPayload);
