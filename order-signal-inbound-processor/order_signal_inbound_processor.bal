@@ -58,10 +58,10 @@ function handleOrderSignal(string path) returns boolean {
     var ret = orderSignalSFTPClient -> get(path);
 
     match ret {
-        io:ByteChannel channel => {
-            io:CharacterChannel characters = new(channel, "utf-8");
+        io:ByteChannel byteChannel => {
+            io:CharacterChannel characters = new(byteChannel, "utf-8");
             xml orderSignalXml = check characters.readXml();
-            _ = channel.close();
+            _ = byteChannel.close();
 
             json orderSignals = generateOrderSignalJson(orderSignalXml);
 

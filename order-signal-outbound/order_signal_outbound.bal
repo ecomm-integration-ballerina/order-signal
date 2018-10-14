@@ -28,7 +28,7 @@ int maxRecords = config:getAsInt("order_signal.outbound.task.maxRecords");
 string apiKey = config:getAsString("ecomm_frontend.order_signal.api.key");
 
 
-function main(string... args) {
+public function main(string... args) {
 
     (function() returns error?) onTriggerFunction = doRefundETL;
 
@@ -156,7 +156,7 @@ function getOrderSignalPayload(model:OrderSignalDAO orderSignal) returns (json) 
                     "lineItemText": x.ZTEXT.getTextValue(),
                     "taxRate": x.ZTAXR.getTextValue(),
                     "productName": x.ZPNAME.getTextValue(),
-                    "quantity": math:floor(check <int> x.ZQTY.getTextValue()),
+                    "quantity": math:floor(check <float> x.ZQTY.getTextValue()),
                     "shipmentId": x.ZSHIPID.getTextValue(),
                     "shipmentQuantity": x.ZSHIPQTY.getTextValue(),
                     "promiseDate": x.ZSSD.getTextValue(),
@@ -283,7 +283,7 @@ function notifyOperation(string errorMessage, int httpCode, string reqPayload)  
 
     string failedParty;
     string message;
-    float intervalSec = interval/1000;
+    float intervalSec = <float> interval/1000;
     if (httpCode == -1) {
         failedParty = "Network";
         message = "Ballerina has retried " + maxRetryCount + " times with " + intervalSec + " sec interval, but experiencing a network failure";
