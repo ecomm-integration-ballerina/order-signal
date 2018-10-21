@@ -1,0 +1,81 @@
+---
+apiVersion: "extensions/v1beta1"
+kind: "Deployment"
+metadata:
+  annotations: {}
+  finalizers: []
+  labels:
+    app: "order-signal-data-service"
+    integration: "order-signal" 
+  name: "order-signal-data-service-deployment"
+  namespace: "default"
+  ownerReferences: []
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9797"
+      finalizers: []
+      labels:
+        app: "order-signal-data-service"
+        integration: "order-signal"
+      ownerReferences: []
+    spec:
+      containers:
+      - args: []
+        command: []
+        env:        
+          - name: order_signal_db_host
+            value: "staging-db-headless-service.default.svc.cluster.local"
+          - name: order_signal_db_port
+            value: "3306"    
+          - name: order_signal_db_name
+            value: "WSO2_STAGING" 
+          - name: order_signal_db_username
+            valueFrom:
+              secretKeyRef:
+                name: staging-db-secret
+                key: username  
+          - name: order_signal_db_password
+            valueFrom:
+              secretKeyRef:
+                name: staging-db-secret
+                key: password
+          - name: b7a_observability_tracing_jaeger_reporter_hostname
+            value: "jaeger-udp-service.default.svc.cluster.local"                       
+        envFrom: []
+        image: "rajkumar/order-signal-data-service:0.1.0"
+        imagePullPolicy: "Always"
+        name: "order-signal-data-service-deployment"
+        ports:       
+        - containerPort: 8280
+          name: http 
+        - containerPort: 9797
+          name: prometheus      
+        readinessProbe:
+          httpGet:
+            path: /data/order-signal/healthz
+            port: 8280
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /data/order-signal/healthz
+            port: 8280
+          initialDelaySeconds: 10
+          periodSeconds: 10              
+        volumeMounts: []
+      hostAliases: []
+      imagePullSecrets: []
+      initContainers: []
+      nodeSelector: {}
+      tolerations: []
+      volumes: []
