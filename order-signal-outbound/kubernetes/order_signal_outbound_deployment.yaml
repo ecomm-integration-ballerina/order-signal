@@ -1,0 +1,45 @@
+---
+apiVersion: "extensions/v1beta1"
+kind: "Deployment"
+metadata:
+  annotations: {}
+  finalizers: []
+  labels:
+    app: "order-signal-outbound"
+    integration: "order-signal" 
+  name: "order-signal-outbound-deployment"
+  namespace: "default"
+  ownerReferences: []
+spec:
+  replicas: 1
+  template:
+    metadata:
+      annotations: {}
+      finalizers: []
+      labels:
+        app: "order-signal-outbound"
+        integration: "order-signal" 
+      ownerReferences: []
+    spec:
+      containers:
+      - args: []
+        command: []
+        env:   
+          - name: order_signal_data_service_url
+            value: "http://order-signal-data-service-service.default.svc.cluster.local:8280/data/order-signal"  
+          - name: notification_service_url
+            value: "http://email-notification-service.default.svc.cluster.local:8280/notification"   
+          - name: ecomm_frontend_order_signal_api_url
+            value: "http://order-signal-front-end-mock-service.default.svc.cluster.local:8280/ecomm-frontend/v2/notification/backend"                                                                                              
+        envFrom: []
+        image: "rajkumar/order-signal-outbound:0.1.0"
+        imagePullPolicy: "Always"
+        name: "order-signal-outbound-deployment"
+        ports:        
+        volumeMounts: []
+      hostAliases: []
+      imagePullSecrets: []
+      initContainers: []
+      nodeSelector: {}
+      tolerations: []
+      volumes: []
