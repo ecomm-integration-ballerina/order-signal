@@ -40,7 +40,7 @@ public function main(string... args) {
         interval, delay = delay);
 
     timer.start();
-    runtime:sleep(20000000);
+    runtime:sleep(200000000000);
 }
 
 function doRefundETL() returns  error? {
