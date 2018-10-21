@@ -1,0 +1,61 @@
+---
+apiVersion: "extensions/v1beta1"
+kind: "Deployment"
+metadata:
+  annotations: {}
+  finalizers: []
+  labels:
+    app: "order-signal-inbound-processor"
+    integration: "order-signal" 
+  name: "order-signal-inbound-processor-deployment"
+  namespace: "default"
+  ownerReferences: []
+spec:
+  replicas: 1
+  template:
+    metadata:
+      annotations: {}
+      finalizers: []
+      labels:
+        app: "order-signal-inbound-processor"
+        integration: "order-signal" 
+      ownerReferences: []
+    spec:
+      containers:
+      - args: []
+        command: []
+        env:
+          - name: order_signal_mb_host
+            value: "b7a-mb-service.default.svc.cluster.local"
+          - name: order_signal_mb_port
+            value: "5672" 
+          - name: ecomm_backend_order_signal_sftp_host
+            value: "refund-sftp-headless-service.default.svc.cluster.local"
+          - name: ecomm_backend_order_signal_sftp_port
+            value: "22"    
+          - name: ecomm_backend_order_signal_sftp_username
+            valueFrom:
+              secretKeyRef:
+                name: ecomm-back-end-sftp-secret
+                key: username 
+          - name: ecomm_backend_order_signal_sftp_password
+            valueFrom:
+                secretKeyRef:
+                  name: ecomm-back-end-sftp-secret
+                  key: password 
+          - name: ecomm_backend_order_signal_sftp_path
+            value: "/var/sftp/order-signal"      
+          - name: order_signal_data_service_url
+            value: "http://order-signal-data-service-service.default.svc.cluster.local:8280/data/order-signal"                                                                     
+        envFrom: []
+        image: "rajkumar/order-signal-inbound-processor:0.1.0"
+        imagePullPolicy: "Always"
+        name: "order-signal-inbound-processor-deployment"
+        ports:        
+        volumeMounts: []
+      hostAliases: []
+      imagePullSecrets: []
+      initContainers: []
+      nodeSelector: {}
+      tolerations: []
+      volumes: []
