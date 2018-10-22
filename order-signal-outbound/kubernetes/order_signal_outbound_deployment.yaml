@@ -25,6 +25,10 @@ spec:
       - args: []
         command: []
         env:   
+          - name: tmc_mb_host
+            value: "b7a-mb-service.default.svc.cluster.local"
+          - name: tmc_mb_port
+            value: "5672"           
           - name: order_signal_data_service_url
             value: "http://order-signal-data-service-service.default.svc.cluster.local:8280/data/order-signal"  
           - name: notification_service_url

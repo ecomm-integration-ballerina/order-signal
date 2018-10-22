@@ -2,9 +2,11 @@ import ballerina/log;
 import ballerina/http;
 import ballerina/config;
 import ballerina/task;
+import ballerina/mb;
 import ballerina/runtime;
 import ballerina/io;
 import ballerina/math;
+import ballerina/time;
 import raj/orders.signal.model as model;
 
 endpoint http:Client orderSignalDataServiceEndpoint {
@@ -17,6 +19,12 @@ endpoint http:Client ecommFrontendOrderSignalAPIEndpoint {
 
 endpoint http:Client notificationServiceEndpoint {
     url: config:getAsString("notification.service.url")
+};
+
+endpoint mb:SimpleQueueSender tmcQueue {
+    host: config:getAsString("tmc.mb.host"),
+    port: config:getAsInt("tmc.mb.port"),
+    queueName: config:getAsString("tmc.mb.queueName")
 };
 
 int count;
@@ -93,6 +101,7 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
         string orderNo = orderSignal.orderNo;
         int retryCount = orderSignal.retryCount;
         string contextId = orderSignal.context;
+        string signal = orderSignal.signal;
 
         try {
 
@@ -107,6 +116,7 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
 
             var response = ecommFrontendOrderSignalAPIEndpoint->post("/", req);
 
+            boolean success;
             match response {
                 http:Response resp => {
 
@@ -114,6 +124,7 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
                     if (httpCode == 201) {
                         log:printInfo("Successfully processed order-signal for : " + orderNo + " to ecomm-frontend");
                         updateProcessFlag(tid, retryCount, "C", "sent to ecomm-frontend", httpCode, jsonPayload.toString());
+                        success = true;
                     } else {
                         match resp.getTextPayload() {
                             string payload => {
@@ -134,6 +145,13 @@ function processRefundsToEcommFrontend (model:OrderSignalDAO[] orderSignals) {
                     updateProcessFlag(tid, retryCount + 1, "E", err.message, -1, jsonPayload.toString());
                 }
             }
+
+            if (success) {
+                publishToTMCQueue(jsonPayload, orderNo, signal, "SENT");
+            } else {
+                publishToTMCQueue(jsonPayload, orderNo, signal, "NOT_SENT");
+            }
+
         } catch (error err) {
             log:printError("Error while calling ecomm-frontend for order-signal for : " + orderNo, err = err);
             updateProcessFlag(tid, retryCount + 1, "E", err.message, -2, "");
@@ -324,4 +342,48 @@ function handleError(error e) {
     log:printError("Error in processing order-signals to ecomm-frontend", err = e);
     // I don't want to stop the ETL if backend is down
     // timer.stop();
+}
+
+function publishToTMCQueue (json req, string orderNo, string signal, string status) {
+
+    time:Time time = time:currentTime();
+    string transactionDate = time.format("yyyyMMddHHmmssSSS");
+    json payload = {
+        "externalKey": null,
+        "processInstanceID": orderNo,
+        "receiverDUNSno":"OPS" ,
+        "senderDUNSno": "ECC",
+        "transactionDate": transactionDate,
+        "version": "V01",
+        "transactionFlow": "INBOUND",
+        "transactionStatus": status,
+        "documentID": null,
+        "documentName": "ORDER_STATUS_ECC_OPS",
+        "documentNo": "ORDER_STATUS_ECC_OPS_" + orderNo + "_" + signal,
+        "documentSize": null,
+        "documentStatus": status,
+        "documentType": "json",
+        "payload": req,
+        "appName": "ORDER_STATUS_ECC_OPS",
+        "documentFilename": null
+     };
+
+    log:printInfo("Sending to tmcQueue, order: " + orderNo + ", payload:\n" + payload.toString());
+
+    match (tmcQueue.createTextMessage(payload.toString())) {
+        error err => {
+            log:printError("Failed to send to tmcQueue, order: " + orderNo, err=err);
+        }
+        mb:Message msg => {
+            var ret = tmcQueue->send(msg);
+            match ret {
+                error err => {
+                    log:printError("Failed to send to tmcQueue, order: " + orderNo, err=err);
+                }
+                () => {
+                    log:printInfo("Sent to tmcQueue, order: " + orderNo);
+                }
+            }
+        }
+    }
 }
