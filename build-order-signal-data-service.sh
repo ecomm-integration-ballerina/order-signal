@@ -3,3 +3,4 @@ docker build -t rajkumar/order-signal-data-service:0.1.0 -f order-signal-data-se
 docker push rajkumar/order-signal-data-service:0.1.0
 kubectl delete -f order-signal-data-service/kubernetes/order_signal_data_service_deployment.yaml
 kubectl create -f order-signal-data-service/kubernetes/order_signal_data_service_deployment.yaml
+kubectl create -f order-signal-data-service/kubernetes/order_signal_data_service_svc.yaml
